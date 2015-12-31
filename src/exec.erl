@@ -65,13 +65,15 @@
     trans       = queue:new(),  % Queue of outstanding transactions sent to port
     limit_users = [],           % Restricted list of users allowed to run commands
     registry,                   % Pids to notify when an OsPid exits
-    debug       = false
+    debug       = false,
+    yolo        = false
 }).
 
 -type exec_options() :: [exec_option()].
 -type exec_option()  ::
       debug
     | {debug, integer()}
+    | yolo
     | verbose
     | {args, [string(), ...]}
     | {alarm, non_neg_integer()}
@@ -84,6 +86,7 @@
 %% <dt>debug</dt><dd>Same as {debug, 1}</dd>
 %% <dt>{debug, Level}</dt><dd>Enable port-programs debug trace at `Level'.</dd>
 %% <dt>verbose</dt><dd>Enable verbose prints of the Erlang process.</dd>
+%% <dt>yolo</dt><dd>Allow running as root.</dd>
 %% <dt>{args, Args}</dt><dd>Append `Args' to the port command.</dd>
 %% <dt>{alarm, Secs}</dt>
 %%     <dd>Give `Secs' deadline for the port program to clean up
@@ -499,6 +502,7 @@ signal(Num) when is_integer(Num) -> Num.
 default() -> 
     [{debug, 0},        % Debug mode of the port program. 
      {verbose, false},  % Verbose print of events on the Erlang side.
+     {yolo, false},     % Allow running processes as root.
      {args, ""},        % Extra arguments that can be passed to port program
      {alarm, 12},
      {user, ""},        % Run port program as this user
@@ -529,9 +533,10 @@ init([Options]) ->
     process_flag(trap_exit, true),
     Opts0 = proplists:normalize(Options,
                     [{expand, [{debug,   {debug, 1}},
+                               {yolo,    {yolo, true}},
                                {verbose, {verbose, true}}]}]),
     Opts1 = [T || T = {O,_} <- Opts0, 
-                lists:member(O, [debug, verbose, args, alarm, user])],
+                lists:member(O, [debug, verbose, yolo, args, alarm, user])],
     Opts  = proplists:normalize(Opts1, [{aliases, [{args, ''}]}]),
     Args  = lists:foldl(
         fun({Opt, I}, Acc) when is_list(I), I =/= ""   ->
@@ -543,6 +548,7 @@ init([Options]) ->
     Exe   = proplists:get_value(portexe,     Options, default(portexe)) ++ lists:flatten([" -n"|Args]),
     Users = proplists:get_value(limit_users, Options, default(limit_users)),
     Debug = proplists:get_value(verbose,     Options, default(verbose)),
+    YOLO  = proplists:get_value(yolo,        Options, default(yolo)),
     Env   = case proplists:get_value(env, Options) of
             undefined -> [];
             Other     -> [{env, Other}]
@@ -552,7 +558,7 @@ init([Options]) ->
         PortOpts = Env ++ [binary, exit_status, {packet, 2}, nouse_stdio, hide],
         Port = erlang:open_port({spawn, Exe}, PortOpts),
         Tab  = ets:new(exec_mon, [protected,named_table]),
-        {ok, #state{port=Port, limit_users=Users, debug=Debug, registry=Tab}}
+        {ok, #state{port=Port, limit_users=Users, debug=Debug, registry=Tab, yolo=YOLO}}
     catch _:Reason ->
         {stop, ?FMT("Error starting port '~s': ~200p", [Exe, Reason])}
     end.
