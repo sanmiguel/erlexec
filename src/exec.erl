@@ -278,7 +278,8 @@
 %%-------------------------------------------------------------------------
 -spec start_link(exec_options()) -> {ok, pid()} | {error, any()}.
 start_link(Options) when is_list(Options) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Options], []).
+    % Debug = {debug, [trace, log, statistics, {log_to_file, "./execserver.log"}]},
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [Options], []). % , [Debug]).
 
 %%-------------------------------------------------------------------------
 %% @equiv start_link/1
@@ -531,15 +532,17 @@ default(Option) ->
 %%-----------------------------------------------------------------------
 init([Options]) ->
     process_flag(trap_exit, true),
-    Opts0 = proplists:normalize(Options,
-                    [{expand, [{debug,   {debug, 1}},
-                               {yolo,    {yolo, true}},
-                               {verbose, {verbose, true}}]}]),
+    Opts0 = proplists:expand([{debug,   {debug, 1}},
+                              {yolo,    {yolo, true}},
+                              {verbose, {verbose, true}}], Options),
     Opts1 = [T || T = {O,_} <- Opts0, 
                 lists:member(O, [debug, verbose, yolo, args, alarm, user])],
     Opts  = proplists:normalize(Opts1, [{aliases, [{args, ''}]}]),
     Args  = lists:foldl(
-        fun({Opt, I}, Acc) when is_list(I), I =/= ""   ->
+        fun
+           (Opt, Acc) when is_atom(Opt) ->
+                [" -"++atom_to_list(Opt)++" " | Acc];
+           ({Opt, I}, Acc) when is_list(I), I =/= ""   ->
                 [" -"++atom_to_list(Opt)++" "++I | Acc];
            ({Opt, I}, Acc) when is_integer(I) ->
                 [" -"++atom_to_list(Opt)++" "++integer_to_list(I) | Acc];
